@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ambiente Saudável — Dashboard</title>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4C5CEB;
+    --bg:#f4f6fb;
+    --card:#ffffff;
+    --muted:#7b7f89;
+    --success:#28a745;
+    --warn:#ff9800;
+    --danger:#e53935;
+    --glass: rgba(255,255,255,0.6);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background:linear-gradient(180deg,var(--bg),#eef2fb);
+    color:#222;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  header{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:18px 28px;
+    background:linear-gradient(90deg,var(--primary),#3a4ed2);
+    color:white;
+    box-shadow: 0 6px 18px rgba(80,90,170,0.12);
+  }
+  header img.logo{
+    height:42px;
+    width:42px;
+    object-fit:cover;
+    border-radius:8px;
+    background:rgba(255,255,255,0.08);
+    padding:4px;
+  }
+  header h1{ font-size:1.05rem; margin:0; font-weight:600; letter-spacing:0.2px }
+  header p { margin:0; font-size:0.82rem; opacity:0.95 }
+
+  .wrap{
+    max-width:1180px;
+    margin:26px auto;
+    padding:0 18px;
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns: 360px 1fr;
+    gap:20px;
+    align-items:start;
+  }
+
+  /* left column */
+  .side{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+  }
+
+  .card{
+    background:var(--card);
+    border-radius:12px;
+    padding:18px;
+    box-shadow: 0 6px 20px rgba(40,50,80,0.06);
+  }
+
+  .device-title{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  .device-title .dot{
+    width:12px;height:12px;border-radius:50%;
+    background:var(--warn);
+    box-shadow:0 0 8px rgba(0,0,0,0.06) inset;
+  }
+  .device-title h2{ margin:0; font-size:1rem }
+  .device-title small{display:block;color:var(--muted); font-size:0.82rem}
+
+  .big-value{
+    font-size:2.4rem;
+    font-weight:700;
+    color:#111;
+  }
+  .muted { color:var(--muted); font-size:0.9rem }
+
+  .row { display:flex; gap:12px; align-items:center }
+  .row.space { justify-content:space-between }
+
+  .controls .btn {
+    cursor:pointer;
+    border:0;
+    padding:10px 12px;
+    border-radius:8px;
+    font-weight:600;
+    color:white;
+    background:var(--primary);
+  }
+  .controls .btn.secondary { background:#6c72f0; opacity:0.95 }
+  .controls .btn.ghost { background:transparent; color:var(--primary); border:1px solid rgba(76,92,235,0.12)}
+
+  .status {
+    padding:10px;
+    border-radius:10px;
+    font-weight:700;
+    text-align:center;
+  }
+
+  .status.ok { background: rgba(40,167,69,0.08); color:var(--success) }
+  .status.moderado { background: rgba(255,152,0,0.06); color:var(--warn) }
+  .status.critico { background: rgba(229,57,53,0.06); color:var(--danger) }
+
+  label{ display:block; font-size:0.9rem; margin-bottom:6px; color:var(--muted) }
+  input, select {
+    width:100%;
+    padding:10px 12px;
+    border-radius:8px;
+    border:1px solid rgba(16,24,40,0.06);
+    background:linear-gradient(180deg,#fff,#fbfdff);
+    font-size:0.95rem;
+    outline:none;
+  }
+
+  .log {
+    font-family: monospace;
+    font-size:0.85rem;
+    max-height:160px;
+    overflow:auto;
+    background:#0f1724;
+    color:#d8f8d8;
+    padding:12px;
+    border-radius:8px;
+  }
+
+  .charts { display:grid; grid-template-columns: repeat(2,1fr); gap:16px; }
+  canvas { width:100% !important; height:180px !important; }
+
+  footer {
+    margin-top:26px;
+    text-align:center;
+    color:var(--muted);
+    font-size:0.9rem;
+  }
+
+  /* responsive */
+  @media (max-width:980px){
+    .grid{ grid-template-columns: 1fr; }
+    .charts{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Ambiente Saudável</h1>
+    <p>Monitor de temperatura, umidade e conforto térmico</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+
+    <div class="side">
+
+      <div class="card">
+        <div class="device-title">
+          <div id="connDot" class="dot" style="background:var(--warn)"></div>
+          <div>
+            <h2 id="deviceName">esp32_ambiente_001</h2>
+            <small id="ipInfo">Broker: test.mosquitto.org (wss)</small>
+          </div>
+        </div>
+
+        <hr style="margin:12px 0; border:none; height:1px; background:#f1f4ff">
+
+        <div style="margin-bottom:10px">
+          <label>Broker (WebSocket)</label>
+          <input id="brokerInput" placeholder="wss://test.mosquitto.org:8081" value="wss://test.mosquitto.org:8081">
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom:10px">
+          <div style="flex:1">
+            <label>Device ID</label>
+            <input id="deviceInput" value="esp32_ambiente_001">
+          </div>
+          <div style="width:120px">
+            <label>SSL</label>
+            <select id="sslSelect">
+              <option value="true" selected>Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row space" style="margin-top:12px">
+          <div style="flex:1">
+            <button id="btnConnect" class="btn">Conectar</button>
+            <button id="btnDisconnect" class="btn secondary" style="margin-left:8px">Desconectar</button>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <label>Status</label>
+          <div id="statusBox" class="status">Desconectado</div>
+        </div>
+      </div>
+
+      <div class="card controls">
+        <div class="device-title"><h2>Controles Rápidos</h2></div>
+        <div style="margin-top:12px" class="row">
+          <button class="btn" onclick="sendCmd('led_on')">LED ON</button>
+          <button class="btn ghost" onclick="sendCmd('led_off')">LED OFF</button>
+        </div>
+        <div style="margin-top:10px" class="row">
+          <button class="btn" onclick="sendCmd('buzzer')">BUZZER</button>
+          <button class="btn ghost" onclick="sendCmd('no_tone')">STOP</button>
+        </div>
+        <div style="margin-top:12px">
+          <label>Última mensagem (raw)</label>
+          <div id="raw" class="log">— aguardando —</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Temperatura</div>
+            <div id="tempNow" class="big-value">-- °C</div>
+            <div class="muted" id="timeNow">Última atualização: —</div>
+          </div>
+
+          <div style="text-align:right">
+            <div class="muted">Conforto</div>
+            <div id="heatNow" class="big-value">—</div>
+            <div id="comfortStatus" class="status ok" style="margin-top:8px">—</div>
+          </div>
+        </div>
+
+        <div style="height:16px"></div>
+
+        <div class="charts">
+          <div>
+            <div class="muted">Temperatura (últimos valores)</div>
+            <canvas id="chartTemp"></canvas>
+          </div>
+          <div>
+            <div class="muted">Umidade (últimos valores)</div>
+            <canvas id="chartHum"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:14px"></div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><h3 style="margin:0">Dados</h3><div class="muted">Último JSON recebido</div></div>
+          <div style="text-align:right"><small class="muted">Tópico: <span id="topicLabel">-</span></small></div>
+        </div>
+        <pre id="jsonDump" class="log" style="margin-top:12px; max-height:240px">— aguardando dados —</pre>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>Global Solution 2025 — Dashboard</footer>
+</div>
+
+<script>
+  function qs(id){ return document.getElementById(id); }
+  function nowTime(){ return new Date().toLocaleTimeString(); }
+
+  const brokerInput = qs('brokerInput');
+  const deviceInput = qs('deviceInput');
+  const sslSelect = qs('sslSelect');
+  const btnConnect = qs('btnConnect');
+  const btnDisconnect = qs('btnDisconnect');
+  const statusBox = qs('statusBox');
+  const connDot = qs('connDot');
+  const rawBox = qs('raw');
+  const jsonDump = qs('jsonDump');
+  const topicLabel = qs('topicLabel');
+
+  const tempNow = qs('tempNow');
+  const heatNow = qs('heatNow');
+  const comfortStatus = qs('comfortStatus');
+  const timeNow = qs('timeNow');
+
+  const ctxT = document.getElementById('chartTemp').getContext('2d');
+  const ctxH = document.getElementById('chartHum').getContext('2d');
+  const maxPoints = 40;
+  const dataTemp = { labels:[], datasets:[{ label:'°C', data:[], borderColor:'#ff6b6b', backgroundColor:'rgba(255,107,107,0.06)', tension:0.2 }]};
+  const dataHum  = { labels:[], datasets:[{ label:'%', data:[], borderColor:'#4c5ceb', backgroundColor:'rgba(76,92,235,0.06)', tension:0.2 }]};
+
+  const chartTemp = new Chart(ctxT, { type:'line', data:dataTemp, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} }});
+  const chartHum  = new Chart(ctxH, { type:'line', data:dataHum,  options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} }});
+
+  let client = null;
+  let currentTopic = null;
+
+  function calcHeatIndex(temp, hum){
+    return -8.784695 + 
+      1.61139411 * temp + 
+      2.338549 * hum -
+      0.14611605 * temp * hum -
+      0.01230809 * (temp*temp) -
+      0.01642482 * (hum*hum) +
+      0.00221173 * (temp*temp) * hum +
+      0.00072546 * temp * (hum*hum) -
+      0.00000358 * (temp*temp) * (hum*hum);
+  }
+
+  function setStatus(text, cls){
+    statusBox.textContent = text;
+    statusBox.className = 'status ' + cls;
+    if (cls === 'ok'){ connDot.style.background = 'var(--success)'; }
+    else if (cls === 'moderado'){ connDot.style.background = 'var(--warn)'; }
+    else if (cls === 'critico'){ connDot.style.background = 'var(--danger)'; }
+    else { connDot.style.background = 'var(--warn)'; }
+  }
+
+  function appendLog(msg){
+    rawBox.textContent = msg + '\n' + rawBox.textContent;
+  }
+
+  function pushPoint(chart, label, value){
+    chart.data.labels.push(label);
+    chart.data.datasets[0].data.push(value);
+    if (chart.data.labels.length > maxPoints){ chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+    chart.update();
+  }
+
+  function connectMQTT(){
+    const brokerUrl = brokerInput.value.trim();
+    const deviceId = deviceInput.value.trim() || 'esp32_ambiente_001';
+    const useSSL = sslSelect.value === 'true';
+    if (client && client.connected) try{ client.end(); } catch(e){}
+    try {
+      setStatus('Conectando...', 'moderado');
+      client = mqtt.connect(brokerUrl, { reconnectPeriod: 4000, connectTimeout: 4000 });
+      client.on('connect', () => {
+        setStatus('Conectado', 'ok');
+        const topic = `globalsolution/${deviceId}/telemetry`;
+        currentTopic = topic;
+        topicLabel.textContent = topic;
+        client.subscribe(topic, (err) => {
+          if (err) appendLog('[subscribe error] ' + err.message);
+          else appendLog('[subscribed] ' + topic);
+        });
+      });
+      client.on('message', (topic, payload) => {
+        const txt = payload.toString();
+        appendLog(`[${nowTime()}] ${topic} → ${txt}`);
+        try {
+          const json = JSON.parse(txt);
+          tempNow.textContent = (json.temp !== undefined ? json.temp : '—') + ' °C';
+          heatNow.textContent = (json.heatIndex !== undefined ? json.heatIndex : '—');
+          comfortStatus.textContent = (json.status || '—').toUpperCase();
+          timeNow.textContent = 'Última atualização: ' + nowTime();
+          jsonDump.textContent = JSON.stringify(json, null, 2);
+          if (json.status === 'OK' || json.status === 'ok') setStatus('Confortável','ok');
+          else if (json.status === 'moderado') setStatus('Moderado','moderado');
+          else if (json.status === 'critico') setStatus('Crítico','critico');
+          else setStatus('OK','ok');
+
+          if (json.temp !== undefined) pushPoint(chartTemp, nowTime(), parseFloat(json.temp));
+          if (json.hum !== undefined)  pushPoint(chartHum, nowTime(), parseFloat(json.hum));
+        } catch(e){
+          console.error('parse error', e);
+        }
+      });
+      client.on('reconnect', () => setStatus('Reconectando...','moderado'));
+      client.on('close', () => setStatus('Desconectado',''));
+      client.on('error', (err) => { appendLog('[error] '+err.message); console.error(err); });
+    } catch(err){
+      appendLog('[connect failed] ' + err.message);
+      setStatus('Erro','');
+    }
+  }
+
+  function disconnectMQTT(){
+    if (!client) return;
+    try {
+      client.end(true);
+      setStatus('Desconectado','');
+      appendLog('[disconnected]');
+    } catch(e){ console.warn(e); }
+  }
+
+  function sendCmd(cmd){
+    if (!client || !client.connected){ appendLog('[cmd failed] not connected'); return; }
+    const deviceId = deviceInput.value.trim() || 'esp32_ambiente_001';
+    const topic = `globalsolution/${deviceId}/cmd`;
+    client.publish(topic, cmd);
+    appendLog(`[cmd] ${topic} : ${cmd}`);
+  }
+
+  btnConnect.addEventListener('click', () => {
+    connectMQTT();
+    qs('deviceName').textContent = deviceInput.value;
+  });
+  btnDisconnect.addEventListener('click', disconnectMQTT);
+
+  window.addEventListener('load', () => {
+    const savedBroker = localStorage.getItem('broker');
+    const savedDevice = localStorage.getItem('deviceId');
+    if (savedBroker) brokerInput.value = savedBroker;
+    if (savedDevice) deviceInput.value = savedDevice;
+    setTimeout(()=>{ btnConnect.click(); }, 400);
+  });
+
+  brokerInput.addEventListener('change', ()=> localStorage.setItem('broker', brokerInput.value));
+  deviceInput.addEventListener('change', ()=> localStorage.setItem('deviceId', deviceInput.value));
+
+  window.sendCmd = sendCmd;
+</script>
+
+</body>
+</html>
